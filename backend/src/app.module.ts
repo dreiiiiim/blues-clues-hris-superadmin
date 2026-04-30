@@ -6,6 +6,8 @@ import { MailModule } from './mail/mail.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { RenewalsModule } from './renewals/renewals.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { RenewalsModule } from './renewals/renewals.module';
     CompaniesModule,
     SubscriptionsModule,
     RenewalsModule,
+    DashboardModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}
