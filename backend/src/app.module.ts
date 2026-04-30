@@ -4,6 +4,7 @@ import { SupabaseModule } from './supabase/supabase.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
 import { CompaniesModule } from './companies/companies.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { CompaniesModule } from './companies/companies.module';
     AuthModule,
     MailModule,
     CompaniesModule,
+    SubscriptionsModule,
   ],
 })
 export class AppModule {}
