@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SupabaseModule } from './supabase/supabase.module';
 import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
+import { CompaniesModule } from './companies/companies.module';
 
 @Module({
   imports: [
@@ -10,7 +11,7 @@ import { MailModule } from './mail/mail.module';
     SupabaseModule,
     AuthModule,
     MailModule,
-    // Phase 2-5 modules added here later
+    CompaniesModule,
   ],
 })
 export class AppModule {}
