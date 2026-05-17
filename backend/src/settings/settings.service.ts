@@ -20,6 +20,30 @@ export class SettingsService {
     return { success: true };
   }
 
+  async changePassword(adminId: string, adminEmail: string, currentPassword: string, newPassword: string) {
+    const db = this.supabase.getClient();
+
+    // Verify current password via Supabase Auth
+    const { error: verifyError } = await db.auth.signInWithPassword({
+      email: adminEmail,
+      password: currentPassword,
+    });
+    if (verifyError) throw new BadRequestException('Current password is incorrect');
+
+    // Update via admin API (service_role key required)
+    const { error } = await db.auth.admin.updateUserById(adminId, { password: newPassword });
+    if (error) throw new BadRequestException(error.message);
+
+    // Audit log
+    await db.from('admin_audit_logs').insert({
+      action: 'PASSWORD_CHANGE: super admin changed their password',
+      performed_by: adminId,
+      severity: 'INFO',
+    });
+
+    return { success: true };
+  }
+
   async getNotifications(adminId: string) {
     const db = this.supabase.getClient();
     const { data } = await db.from('super_admin_settings').select('*')
@@ -42,6 +66,17 @@ export class SettingsService {
     );
     if (error) throw new BadRequestException(error.message);
     return { success: true };
+  }
+
+  async getAuditLog() {
+    const db = this.supabase.getClient();
+    const { data, error } = await db
+      .from('admin_audit_logs')
+      .select('id, action, performed_by, company_id, severity, created_at')
+      .order('created_at', { ascending: false })
+      .limit(25);
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
   }
 
   getSystemSettings() {

@@ -3,18 +3,32 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AlertCircle, Building2, Search, ChevronLeft, ChevronRight, Zap, ShieldOff } from 'lucide-react';
 
 type Company = {
-  registration_id: string; company_id: string; company_name: string;
-  email: string; industry: string; subscription_plan: string;
-  subscription_status: string; payment_date: string; billing_cycle: string;
+  registration_id: string;
+  company_id: string;
+  company_name: string;
+  email: string;
+  industry: string;
+  subscription_plan: string;
+  subscription_status: string;
+  payment_date: string;
+  billing_cycle: string;
 };
+
+const STATUS_FILTERS = ['Active', 'Pending', 'Suspended', 'Expired'];
+
+type ConfirmState = { action: 'provision' | 'suspend'; id: string; name: string } | null;
 
 export default function CompaniesPage() {
   const qc = useQueryClient();
-  const [filters, setFilters] = useState({ status: '', plan: '', industry: '', page: 1 });
+  const [filters, setFilters] = useState({ status: '', plan: '', industry: '', search: '', page: 1 });
   const [selected, setSelected] = useState<Company | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['companies', filters],
@@ -22,13 +36,22 @@ export default function CompaniesPage() {
   });
 
   const suspend = useMutation({
-    mutationFn: (id: string) => api.patch(`/companies/${id}/status`, { subscription_status: 'Suspended' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['companies'] }),
+    mutationFn: (id: string) =>
+      api.patch(`/companies/${id}/status`, { subscription_status: 'Suspended' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['companies'] }); setConfirm(null); },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } } };
+      setErrorMsg(e.response?.data?.message || 'Failed to suspend company');
+    },
   });
 
   const provision = useMutation({
     mutationFn: (id: string) => api.post(`/companies/${id}/provision`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['companies'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['companies'] }); setConfirm(null); },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } } };
+      setErrorMsg(e.response?.data?.message || 'Provisioning failed');
+    },
   });
 
   const companies: Company[] = data?.data ?? [];
@@ -41,84 +64,209 @@ export default function CompaniesPage() {
     return d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  function initials(name: string) {
+    return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  }
+
+  function handleConfirm() {
+    if (!confirm) return;
+    if (confirm.action === 'provision') provision.mutate(confirm.id);
+    else suspend.mutate(confirm.id);
+  }
+
+  const isMutating = provision.isPending || suspend.isPending;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-slate-900">Companies</h1>
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-3 mb-4">
-        {['Active','Pending','Suspended','Expired'].map(s => (
-          <button key={s} onClick={() => setFilters(f => ({ ...f, status: f.status === s ? '' : s, page: 1 }))}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              filters.status === s ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400'
-            }`}>{s}</button>
-        ))}
-        <input placeholder="Search industry…" value={filters.industry}
-          onChange={e => setFilters(f => ({ ...f, industry: e.target.value, page: 1 }))}
-          className="ml-auto border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>{['Company','Industry','Plan','Status','Renewal Date','Actions'].map(h => (
-              <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
-            ))}</tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {isLoading ? (
-              <tr><td colSpan={6} className="py-12 text-center text-slate-400">Loading…</td></tr>
-            ) : companies.length === 0 ? (
-              <tr><td colSpan={6} className="py-12 text-center text-slate-400">No companies found</td></tr>
-            ) : companies.map(c => (
-              <tr key={c.registration_id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-4 py-3 font-medium text-slate-900">
-                  <button onClick={() => { setSelected(c); setShowDetail(true); }}
-                    className="hover:text-blue-600 text-left">{c.company_name}</button>
-                </td>
-                <td className="px-4 py-3 text-slate-600">{c.industry}</td>
-                <td className="px-4 py-3 text-slate-600 capitalize">{c.subscription_plan}</td>
-                <td className="px-4 py-3"><StatusBadge status={c.subscription_status} /></td>
-                <td className="px-4 py-3 text-slate-600">{computeEndDate(c.payment_date, c.billing_cycle)}</td>
-                <td className="px-4 py-3 flex gap-2">
-                  {!c.company_id && (
-                    <button onClick={() => provision.mutate(c.registration_id)}
-                      className="px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
-                      Provision
-                    </button>
-                  )}
-                  {c.subscription_status !== 'Suspended' && (
-                    <button onClick={() => { if (confirm(`Suspend ${c.company_name}?`)) suspend.mutate(c.registration_id); }}
-                      className="px-2.5 py-1 bg-red-50 text-red-600 border border-red-200 text-xs rounded-lg hover:bg-red-100">
-                      Suspend
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="flex justify-between items-center mt-4 text-sm text-slate-500">
-        <span>Total: {data?.total ?? 0}</span>
-        <div className="flex gap-2">
-          <button disabled={filters.page <= 1}
-            onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}
-            className="px-3 py-1 border border-slate-200 rounded-lg disabled:opacity-40">Previous</button>
-          <button disabled={companies.length < 20}
-            onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
-            className="px-3 py-1 border border-slate-200 rounded-lg disabled:opacity-40">Next</button>
+    <div className="space-y-6 animate-slide-up">
+      {/* Page header */}
+      <div className="pb-1">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">
+          Tenant Management
+        </p>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Companies</h1>
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Building2 className="h-4 w-4 text-slate-400" />
+            <span className="font-bold text-slate-700 tabular-nums">{data?.total ?? '—'}</span>
+            <span>total</span>
+          </div>
         </div>
       </div>
 
-      {/* Detail modal */}
+      {errorMsg && (
+        <div className="flex items-center gap-2.5 p-3.5 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{errorMsg}</span>
+          <button
+            onClick={() => setErrorMsg('')}
+            className="text-red-400 hover:text-red-600 transition-colors text-xs font-bold shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-wrap">
+        <div className="flex gap-2 flex-wrap">
+          {STATUS_FILTERS.map(s => (
+            <button
+              key={s}
+              onClick={() => setFilters(f => ({ ...f, status: f.status === s ? '' : s, page: 1 }))}
+              className={`px-3.5 py-1.5 rounded-xl text-sm font-bold border transition-colors duration-200 ${
+                filters.status === s
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative ml-auto">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            placeholder="Search company or industry…"
+            value={filters.search}
+            onChange={e => setFilters(f => ({ ...f, search: e.target.value, page: 1 }))}
+            className="h-10 w-72 rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 transition-shadow"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                {['Company', 'Industry', 'Plan', 'Status', 'Renewal Date', 'Actions'].map(h => (
+                  <th
+                    key={h}
+                    className="text-left px-5 py-3.5 text-[10px] font-bold uppercase tracking-widest text-slate-400"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                [...Array(4)].map((_, i) => (
+                  <tr key={i} className="border-b border-slate-100">
+                    {[55, 70, 45, 40, 60, 50].map((w, j) => (
+                      <td key={j} className="px-5 py-3.5">
+                        <div className="h-4 rounded animate-shimmer" style={{ width: `${w}%` }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : companies.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Building2 className="h-8 w-8 text-slate-300" />
+                      <p className="text-sm font-medium text-slate-500">No companies found</p>
+                      <p className="text-xs text-slate-400">Try adjusting filters or search.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                companies.map(c => (
+                  <tr key={c.registration_id} className="hover:bg-slate-50 transition-colors duration-150">
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={() => { setSelected(c); setShowDetail(true); }}
+                        className="flex items-center gap-3 group text-left"
+                      >
+                        <div className="h-9 w-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 group-hover:bg-blue-100 transition-colors">
+                          <span className="text-xs font-bold text-blue-600">{initials(c.company_name)}</span>
+                        </div>
+                        <span className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                          {c.company_name}
+                        </span>
+                      </button>
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-600">{c.industry}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="capitalize bg-slate-100 text-slate-700 text-xs font-bold px-2 py-0.5 rounded-lg">
+                        {c.subscription_plan}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5"><StatusBadge status={c.subscription_status} /></td>
+                    <td className="px-5 py-3.5 text-slate-600 text-xs">
+                      {computeEndDate(c.payment_date, c.billing_cycle)}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        {!c.company_id && (
+                          <button
+                            onClick={() => setConfirm({ action: 'provision', id: c.registration_id, name: c.company_name })}
+                            disabled={isMutating}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white transition-colors duration-200 disabled:opacity-50"
+                          >
+                            <Zap className="h-3 w-3" /> Provision
+                          </button>
+                        )}
+                        {c.subscription_status !== 'Suspended' && (
+                          <button
+                            onClick={() => setConfirm({ action: 'suspend', id: c.registration_id, name: c.company_name })}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 text-red-600 border border-red-200 text-xs font-bold rounded-lg hover:bg-red-100 active:scale-[0.98] transition-colors duration-200"
+                          >
+                            <ShieldOff className="h-3 w-3" /> Suspend
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-100 bg-slate-50/60">
+          <span className="text-xs text-slate-400">Total: {data?.total ?? 0} companies</span>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={filters.page <= 1}
+              onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-xs font-bold text-slate-600 min-w-8 text-center">{filters.page}</span>
+            <button
+              disabled={companies.length < 20}
+              onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {showDetail && selected && (
         <CompanyDetailModal company={selected} onClose={() => setShowDetail(false)} />
+      )}
+
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.action === 'provision' ? 'Provision Company' : 'Suspend Company'}
+          message={
+            confirm.action === 'provision'
+              ? `This will create the HRIS tenant for ${confirm.name}. The company gains system access immediately.`
+              : `Suspending ${confirm.name} blocks all user logins for this company. You can reactivate from this page.`
+          }
+          confirmLabel={confirm.action === 'provision' ? 'Provision' : 'Suspend'}
+          confirmStyle={confirm.action === 'suspend' ? 'danger' : 'primary'}
+          onConfirm={handleConfirm}
+          onCancel={() => setConfirm(null)}
+          loading={isMutating}
+        />
       )}
     </div>
   );
@@ -131,29 +279,76 @@ function CompanyDetailModal({ company, onClose }: { company: Company; onClose: (
     enabled: !!company.company_id,
   });
 
+  function initials(name: string) {
+    return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 max-h-[80vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">{company.company_name}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
-        </div>
-        {isLoading ? <p className="text-slate-400">Loading…</p> : (
-          <div className="space-y-4 text-sm">
-            <div><span className="font-medium text-slate-500">Registration ID:</span> <span className="text-slate-800">{company.registration_id}</span></div>
-            <div><span className="font-medium text-slate-500">Plan:</span> <span className="text-slate-800 capitalize">{company.subscription_plan}</span></div>
-            <div><span className="font-medium text-slate-500">Status:</span> <StatusBadge status={company.subscription_status} /></div>
-            <div><span className="font-medium text-slate-500">Industry:</span> <span className="text-slate-800">{company.industry}</span></div>
-            <div><span className="font-medium text-slate-500">Admin email:</span> <span className="text-slate-800">{company.email}</span></div>
-            {data?.config && (
-              <>
-                <hr className="border-slate-100" />
-                <div><span className="font-medium text-slate-500">Timezone:</span> <span className="text-slate-800">{data.config.timezone}</span></div>
-                <div><span className="font-medium text-slate-500">Currency:</span> <span className="text-slate-800">{data.config.currency}</span></div>
-              </>
-            )}
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
+      style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto animate-slide-up">
+        <div className="flex items-center gap-4 p-6 border-b border-slate-100">
+          <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0">
+            <span className="text-sm font-bold text-blue-600">{initials(company.company_name)}</span>
           </div>
-        )}
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-slate-900 truncate">{company.company_name}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{company.email}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-8 w-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="p-6 space-y-3 text-sm">
+          {[
+            { label: 'Registration ID', value: company.registration_id },
+            { label: 'Plan', value: company.subscription_plan, capitalize: true },
+            { label: 'Industry', value: company.industry },
+            { label: 'Billing', value: company.billing_cycle, capitalize: true },
+          ].map(({ label, value, capitalize }) => (
+            <div key={label} className="flex items-center justify-between py-2 border-b border-slate-50">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</span>
+              <span className={`text-slate-800 font-medium ${capitalize ? 'capitalize' : 'font-mono text-xs'}`}>
+                {value}
+              </span>
+            </div>
+          ))}
+
+          <div className="flex items-center justify-between py-2 border-b border-slate-50">
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Status</span>
+            <StatusBadge status={company.subscription_status} />
+          </div>
+
+          {isLoading && (
+            <div className="flex items-center justify-center gap-2 py-4 text-slate-400">
+              <div className="h-4 w-4 rounded-full border-2 border-slate-300 border-t-blue-500 animate-spin" />
+              Loading config…
+            </div>
+          )}
+
+          {data?.config && (
+            <div className="pt-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300 mb-3">Tenant Config</p>
+              {[
+                { label: 'Timezone', value: data.config.timezone },
+                { label: 'Currency', value: data.config.currency },
+                { label: 'Date Format', value: data.config.date_format },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between py-2 border-b border-slate-50">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</span>
+                  <span className="text-slate-700 text-xs">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

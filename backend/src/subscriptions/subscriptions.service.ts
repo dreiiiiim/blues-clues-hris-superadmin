@@ -22,11 +22,10 @@ export class SubscriptionsService {
     let q = db
       .from('company_registrations')
       .select('registration_id, company_id, company_name, subscription_plan, billing_cycle, subscription_status, payment_status, payment_date, transaction_id', { count: 'exact' })
-      .not('company_id', 'is', null)
       .range(offset, offset + limit - 1)
       .order('payment_date', { ascending: false });
 
-    if (query.status) q = q.eq('subscription_status', query.status);
+    if (query.status) q = q.ilike('subscription_status', query.status);
     if (query.billing_cycle) q = q.eq('billing_cycle', query.billing_cycle);
 
     const { data, error, count } = await q;

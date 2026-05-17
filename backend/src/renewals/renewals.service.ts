@@ -33,8 +33,7 @@ export class RenewalsService {
     const { data, error } = await db
       .from('company_registrations')
       .select('registration_id, company_id, company_name, subscription_plan, billing_cycle, payment_date, email, subscription_status')
-      .in('subscription_status', ['Active', 'Expired'])
-      .not('company_id', 'is', null);
+      .or('subscription_status.ilike.active,subscription_status.ilike.expired');
 
     if (error) throw new BadRequestException(error.message);
 

@@ -20,13 +20,12 @@ export class CompaniesService {
         registration_id, company_id, company_name, email, industry,
         subscription_plan, subscription_status, payment_status,
         billing_cycle, payment_date, transaction_id,
-        company!inner(company_name, slug)
+        company(company_name, slug)
       `, { count: 'exact' })
-      .not('company_id', 'is', null)
       .range(offset, offset + limit - 1)
       .order('registered_date', { ascending: false });
 
-    if (query.status) q = q.eq('subscription_status', query.status);
+    if (query.status) q = q.ilike('subscription_status', query.status);
     if (query.plan) q = q.eq('subscription_plan', query.plan);
     if (query.industry) q = q.ilike('industry', `%${query.industry}%`);
     if (query.from) q = q.gte('payment_date', query.from);

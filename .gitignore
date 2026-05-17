@@ -6,3 +6,7 @@ dist/
 .next/
 .planning
 .claude
+.agents/
+.impeccable/
+skills-lock.json
+superadmin/
