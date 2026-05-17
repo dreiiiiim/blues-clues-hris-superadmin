@@ -2,6 +2,8 @@
 
 Central control panel for the Blues Clues HRIS platform. Manages company tenants, subscriptions, renewals, and system settings.
 
+GDOCS FOR ENV
+https://docs.google.com/document/d/1QbcjtozYNobPMb_ffn4uEWH5RwJ_TpOB4eTlkHVu4oE/edit?usp=sharing
 ---
 
 ## Default Login Credentials
