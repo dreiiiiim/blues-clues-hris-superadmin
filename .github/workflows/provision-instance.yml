@@ -1,0 +1,61 @@
+name: Provision Company Instance
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_id:
+        required: true
+        description: 'UUID of the company'
+      company_slug:
+        required: true
+        description: 'URL-safe slug e.g. abc-corporation'
+      admin_email:
+        required: true
+        description: 'Company admin email'
+      instance_id:
+        required: true
+        description: 'UUID of the instances row to update on completion'
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      INTERNAL_API_URL: ${{ secrets.INTERNAL_API_URL }}
+      INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Create company schema
+        run: |
+          SAFE_SLUG=$(echo "${{ inputs.company_slug }}" | tr '-' '_')
+          psql "$SUPABASE_DB_URL" -c "CREATE SCHEMA IF NOT EXISTS hris_${SAFE_SLUG};"
+          echo "Schema hris_${SAFE_SLUG} created."
+
+      - name: Seed default data
+        run: |
+          psql "$SUPABASE_DB_URL" \
+            -v company_id=${{ inputs.company_id }} \
+            -f sql/seeds/defaults.sql
+          echo "Default seed complete."
+
+      - name: Activate instance (success)
+        if: success()
+        run: |
+          curl -sf -X PATCH \
+            "${INTERNAL_API_URL}/super-admin/internal/instances/${{ inputs.instance_id }}/activate" \
+            -H "x-internal-secret: ${INTERNAL_API_SECRET}" \
+            -H "Content-Type: application/json"
+          echo "Instance ${{ inputs.instance_id }} activated."
+
+      - name: Mark instance failed
+        if: failure()
+        run: |
+          curl -s -X PATCH \
+            "${INTERNAL_API_URL}/super-admin/internal/instances/${{ inputs.instance_id }}/fail" \
+            -H "x-internal-secret: ${INTERNAL_API_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"error":"GHA provision job failed — check Actions logs"}'
+          echo "Instance ${{ inputs.instance_id }} marked failed."
