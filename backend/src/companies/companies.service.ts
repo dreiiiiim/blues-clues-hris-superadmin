@@ -77,14 +77,21 @@ export class CompaniesService {
     const companyId = crypto.randomUUID();
     const slug = reg.company_name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-    await db.from('company').insert({ company_id: companyId, company_name: reg.company_name, slug });
+    const { error: companyErr } = await db
+      .from('company')
+      .insert({ company_id: companyId, company_name: reg.company_name, slug });
+    if (companyErr) throw new BadRequestException(`Failed to create company: ${companyErr.message}`);
 
-    await db.from('company_registrations').update({ company_id: companyId, status: 'Provisioned' })
+    const { error: updateErr } = await db
+      .from('company_registrations')
+      .update({ company_id: companyId, subscription_status: 'Active' })
       .eq('registration_id', registrationId);
+    if (updateErr) throw new BadRequestException(`Failed to link registration: ${updateErr.message}`);
 
-    await db.from('tenant_config').insert({
+    const { error: configErr } = await db.from('tenant_config').insert({
       company_id: companyId, timezone: 'Asia/Manila', date_format: 'MM/DD/YYYY', currency: 'PHP',
     });
+    if (configErr) throw new BadRequestException(`Failed to create tenant config: ${configErr.message}`);
 
     await db.from('admin_audit_logs').insert({
       action: `PROVISION: ${reg.company_name} (${companyId}) — registration ${registrationId}`,
